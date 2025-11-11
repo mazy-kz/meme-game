@@ -45,30 +45,46 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
 
   useEffect(() => {
     const handleState = (payload: LobbyStatePayload) => {
+      console.log('📊 [Socket] Received lobby:state update:', payload);
       setState(payload);
       setError(null);
       setConnectionStatus('connected');
     };
     const handleError = (message: string) => {
+      console.error('❌ [Socket] Received lobby:error:', message);
       setError(message);
+    };
+    const handleConnect = () => {
+      console.log('✅ [Socket] Connected! Socket ID:', socket.id);
+      setConnectionStatus('connected');
+    };
+    const handleDisconnect = (reason: string) => {
+      console.error('❌ [Socket] Disconnected! Reason:', reason);
+      setConnectionStatus('idle');
+    };
+    const handleConnectError = (error: Error) => {
+      console.error('❌ [Socket] Connection error:', error);
     };
 
     socket.on('lobby:state', handleState);
     socket.on('lobby:error', handleError);
-    socket.on('connect', () => setConnectionStatus('connected'));
-    socket.on('disconnect', () => setConnectionStatus('idle'));
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
 
     return () => {
+      console.log('🔌 [Socket] Cleanup - disconnecting socket for lobbyId:', lobbyId);
       socket.emit('player:leave');
       socket.off('lobby:state', handleState);
       socket.off('lobby:error', handleError);
-      socket.removeListener('connect');
-      socket.removeListener('disconnect');
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
       socket.disconnect();
       socketRef.current = undefined;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, lobbyId]);
+  }, [lobbyId]); // Removed 'socket' from dependencies - it's a ref and shouldn't trigger re-renders
 
   const joinLobby = useCallback(
     ({ lobbyId: id, name, avatar, spectator }: { lobbyId: string; name: string; avatar: string; spectator?: boolean }) => {
@@ -80,16 +96,21 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
         avatar,
         spectator
       };
+      console.log('🔌 [Socket] Joining lobby with payload:', payload);
       setConnectionStatus('connecting');
       return new Promise<JoinLobbyResponse>((resolve, reject) => {
+        console.log('🔌 [Socket] Connecting to socket...');
         socket.connect();
         socket.emit('player:join', payload, (response: JoinLobbyResponse) => {
+          console.log('🔌 [Socket] Received join response:', response);
           if (!response.ok) {
+            console.error('❌ [Socket] Join failed:', response.message);
             setConnectionStatus('idle');
             setError(response.message ?? 'Unable to join lobby');
             reject(new Error(response.message ?? 'Unable to join lobby'));
             return;
           }
+          console.log('✅ [Socket] Join successful, saving playerId:', response.playerId);
           window.localStorage.setItem(storageKey, response.playerId);
           setConnectionStatus('connected');
           resolve(response);
@@ -114,7 +135,15 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
   );
 
   const startGame = useCallback(() => {
+    console.log('🎮 [Socket] Emitting game:start event');
+    console.log('🎮 [Socket] Socket connected?', socket.connected);
+    console.log('🎮 [Socket] Socket ID:', socket.id);
+    if (!socket.connected) {
+      console.error('❌ [Socket] Socket is disconnected! Cannot emit game:start');
+      return;
+    }
     socket.emit('game:start');
+    console.log('✅ [Socket] game:start event emitted successfully');
   }, [socket]);
 
   const updateSettings = useCallback(

@@ -33,6 +33,7 @@ export interface LobbySummary {
 }
 
 export async function createLobby(payload: CreateLobbyRequest): Promise<CreateLobbyResponse> {
+  console.log('📡 [API] Calling POST /api/lobbies with:', payload);
   const res = await fetch(`${API_BASE}/lobbies`, {
     method: 'POST',
     headers: {
@@ -40,10 +41,15 @@ export async function createLobby(payload: CreateLobbyRequest): Promise<CreateLo
     },
     body: JSON.stringify(payload)
   });
+  console.log('📡 [API] Response status:', res.status, res.statusText);
   if (!res.ok) {
+    const errorText = await res.text();
+    console.error('❌ [API] Error response:', errorText);
     throw new Error('Failed to create lobby');
   }
-  return res.json();
+  const data = await res.json();
+  console.log('✅ [API] Response data:', data);
+  return data;
 }
 
 export async function getLobby(lobbyId: string): Promise<LobbySummary> {

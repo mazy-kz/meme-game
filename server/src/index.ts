@@ -1,3 +1,4 @@
+// Meme Game Server
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
@@ -54,13 +55,16 @@ gameManager.onStateChange((lobbyId) => {
 });
 
 app.post('/api/lobbies', (req, res) => {
+  console.log('📥 [Server] POST /api/lobbies - Request body:', req.body);
   const { rounds, maxPlayers, theme, name, avatar } = req.body as Partial<LobbySettings> & {
     name?: string;
     avatar?: string;
   };
 
   const settings = sanitizeSettings({ rounds, maxPlayers, theme });
+  console.log('⚙️  [Server] Sanitized settings:', settings);
   const { lobby, host } = gameManager.createLobby(settings);
+  console.log('🎮 [Server] Lobby created:', { lobbyId: lobby.id, hostId: host.id });
 
   if (typeof name === 'string' && name.trim()) {
     host.name = name.trim().slice(0, 40);
@@ -69,7 +73,7 @@ app.post('/api/lobbies', (req, res) => {
     host.avatar = avatar.trim().slice(0, 8);
   }
 
-  res.json({
+  const response = {
     lobbyId: lobby.id,
     playerId: host.id,
     settings: lobby.settings,
@@ -78,7 +82,9 @@ app.post('/api/lobbies', (req, res) => {
       name: host.name,
       avatar: host.avatar
     }
-  });
+  };
+  console.log('✅ [Server] Sending response:', response);
+  res.json(response);
 });
 
 app.get('/api/lobbies/:lobbyId', (req, res) => {
@@ -104,7 +110,10 @@ app.get('/api/lobbies/:lobbyId', (req, res) => {
 });
 
 io.on('connection', (socket) => {
+  console.log('🔌 [Server] New socket connection:', socket.id);
+  
   socket.on('player:join', (payload: JoinLobbyRequest, callback) => {
+    console.log('🚪 [Server] Player join request:', { socketId: socket.id, payload });
     const { lobbyId, playerId: existingId, name, avatar, spectator } = payload;
     const joinResult = gameManager.joinLobby(lobbyId, {
       playerId: existingId,
@@ -112,21 +121,25 @@ io.on('connection', (socket) => {
       avatar,
       spectator
     });
+    console.log('🎮 [Server] Join result:', joinResult);
 
     if (!joinResult.lobby || !joinResult.player) {
+      console.error('❌ [Server] Join failed:', joinResult.error);
       callback({ ok: false, lobbyId, playerId: existingId ?? '', spectator: true, message: joinResult.error || 'Unable to join' });
       return;
     }
 
     gameManager.markPlayerConnected(lobbyId, joinResult.player.id, socket.id);
     socketToPlayer.set(socket.id, { lobbyId, playerId: joinResult.player.id });
-    callback({
+    const response = {
       ok: true,
       lobbyId,
       playerId: joinResult.player.id,
       spectator: joinResult.player.spectator,
       message: joinResult.error
-    });
+    };
+    console.log('✅ [Server] Player joined successfully:', response);
+    callback(response);
   });
 
   socket.on('player:updateName', (name: string) => {
@@ -148,11 +161,23 @@ io.on('connection', (socket) => {
   });
 
   socket.on('game:start', async () => {
+    console.log('🎮🎮🎮 [Server] ===== GAME START EVENT RECEIVED ===== from socket:', socket.id);
+    console.log('🎮 [Server] game:start event received from socket:', socket.id);
     const ref = socketToPlayer.get(socket.id);
-    if (!ref) return;
+    console.log('🎮 [Server] Socket to player map lookup result:', ref);
+    console.log('🎮 [Server] All active socket-to-player mappings:', Array.from(socketToPlayer.entries()));
+    if (!ref) {
+      console.error('❌ [Server] No player reference found for socket:', socket.id);
+      return;
+    }
+    console.log('🎮 [Server] Starting game for lobby:', ref.lobbyId, 'requested by player:', ref.playerId);
     const success = await gameManager.startGame(ref.lobbyId);
+    console.log('🎮 [Server] Start game result:', success);
     if (!success) {
+      console.error('❌ [Server] Failed to start game - need at least 2 players');
       socket.emit('lobby:error', 'Need at least two active players to start.');
+    } else {
+      console.log('✅ [Server] Game started successfully!');
     }
   });
 

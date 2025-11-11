@@ -63,6 +63,7 @@ function sortPlayers(players: PlayerPublicState[]): PlayerPublicState[] {
 
 export default function LobbyPage() {
   const { lobbyId } = useParams();
+  console.log('🏠 [LobbyPage] Rendering with lobbyId:', lobbyId);
   const navigate = useNavigate();
   const [profile, setProfile, randomizeProfile] = useProfile();
   const [summaryError, setSummaryError] = useState<string | null>(null);
@@ -73,12 +74,15 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (!lobbyId) return;
+    console.log('🔍 [LobbyPage] Fetching lobby summary for:', lobbyId);
     setSummaryLoading(true);
     getLobby(lobbyId)
       .then((data) => {
+        console.log('✅ [LobbyPage] Lobby summary received:', data);
         setSummaryError(null);
       })
       .catch((err) => {
+        console.error('❌ [LobbyPage] Failed to fetch lobby:', err);
         setSummaryError(err instanceof Error ? err.message : 'Lobby not found');
       })
       .finally(() => setSummaryLoading(false));
@@ -89,6 +93,16 @@ export default function LobbyPage() {
   const isSpectator = state?.you?.spectator ?? false;
   const round = state?.round;
   const timeLeft = useCountdown(round?.endsAt);
+
+  console.log('🎮 [LobbyPage] Current state values:', { 
+    playerId, 
+    isHost, 
+    isSpectator, 
+    phase: state?.phase,
+    hostId: state?.hostId,
+    yourId: state?.you?.id,
+    showStartButton: !isSpectator && state?.phase === 'lobby'
+  });
 
   useEffect(() => {
     if (round?.phase === 'voting') {
@@ -114,11 +128,13 @@ export default function LobbyPage() {
   }
 
   const handleJoin = async (spectator?: boolean) => {
+    console.log('🚪 [LobbyPage] Attempting to join lobby:', { lobbyId, spectator, profile });
     setJoining(true);
     try {
-      await joinLobby({ lobbyId, name: profile.name, avatar: profile.avatar, spectator });
+      const response = await joinLobby({ lobbyId, name: profile.name, avatar: profile.avatar, spectator });
+      console.log('✅ [LobbyPage] Successfully joined lobby:', response);
     } catch (err) {
-      console.error(err);
+      console.error('❌ [LobbyPage] Failed to join lobby:', err);
     } finally {
       setJoining(false);
     }
@@ -372,7 +388,13 @@ export default function LobbyPage() {
             </button>
             {!isSpectator && state.phase === 'lobby' && (
               <button
-                onClick={() => startGame()}
+                onClick={() => {
+                  console.log('🎮 [LobbyPage] Start Game button clicked', { isHost, isSpectator, phase: state.phase });
+                  alert('Button clicked! Check console for details.');
+                  console.log('🎮 [DIRECT] About to call startGame()');
+                  startGame();
+                  console.log('🎮 [DIRECT] startGame() called');
+                }}
                 className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-brand-light"
               >
                 Start game

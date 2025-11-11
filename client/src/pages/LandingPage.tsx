@@ -36,9 +36,11 @@ export default function LandingPage() {
 
   const handleCreate = async (event: FormEvent) => {
     event.preventDefault();
+    console.log('🎮 [Landing] Creating lobby with settings:', { rounds, theme, maxPlayers, profile });
     setCreating(true);
     setError(null);
     try {
+      console.log('📡 [Landing] Sending create lobby request...');
       const response = await createLobby({
         rounds,
         theme,
@@ -46,10 +48,13 @@ export default function LandingPage() {
         name: profile.name,
         avatar: profile.avatar
       });
+      console.log('✅ [Landing] Lobby created successfully:', response);
       window.localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
       window.localStorage.setItem(`meme-game:lobby:${response.lobbyId}`, response.playerId);
+      console.log('🚀 [Landing] Navigating to lobby:', response.lobbyId);
       navigate(`/lobby/${response.lobbyId}`);
     } catch (err) {
+      console.error('❌ [Landing] Failed to create lobby:', err);
       setError(err instanceof Error ? err.message : 'Failed to create lobby');
     } finally {
       setCreating(false);
