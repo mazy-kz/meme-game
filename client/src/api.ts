@@ -1,6 +1,30 @@
 import type { LobbySettings } from '@shared/types';
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api';
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/$/, '');
+}
+
+function deriveHostedApiBase(): string | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  const { protocol, host } = window.location;
+
+  if (host.includes('-client')) {
+    return `${protocol}//${host.replace('-client', '-server')}/api`;
+  }
+
+  if (host.includes('client.')) {
+    return `${protocol}//${host.replace('client.', 'server.')}/api`;
+  }
+
+  return undefined;
+}
+
+const API_BASE = normalizeBaseUrl(
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? deriveHostedApiBase() ?? '/api'
+);
 
 export interface CreateLobbyRequest extends LobbySettings {
   name?: string;
