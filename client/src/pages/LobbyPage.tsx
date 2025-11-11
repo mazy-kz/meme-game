@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import type {
   HighlightMoment,
   LobbySettings,
+  LobbyStatePayload,
   MemeCard,
   PlayerPublicState,
+  RoundResultEntry,
   RoundSubmissionView
 } from '@shared/types';
 import { getLobby } from '../api';
@@ -307,7 +309,7 @@ export default function LobbyPage() {
     <div className="space-y-4">
       <h3 className="text-xl font-semibold text-white">Round leaderboard</h3>
       <div className="grid gap-4 md:grid-cols-2">
-        {roundState?.leaderboard.map((entry) => {
+        {roundState?.leaderboard.map((entry: RoundResultEntry) => {
           const player = state?.players.find((p) => p.id === entry.playerId);
           if (!player) return null;
           return (

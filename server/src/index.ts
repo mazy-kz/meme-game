@@ -1,5 +1,5 @@
 import http from 'node:http';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import {
@@ -14,14 +14,82 @@ import {
 import { gameManager } from './game/gameManager.js';
 
 const app = express();
-app.use(cors());
+
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowAllOrigins = configuredOrigins.length === 0;
+
+const allowedOrigins = new Set([
+  ...configuredOrigins,
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:4173',
+  'http://127.0.0.1:4173',
+  process.env.CLIENT_ORIGIN?.trim()
+].filter((value): value is string => Boolean(value)));
+
+const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (!origin || allowAllOrigins || allowedOrigins.has(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    try {
+      const normalized = new URL(origin).origin;
+      if (allowedOrigins.has(normalized)) {
+        callback(null, true);
+        return;
+      }
+    } catch (error) {
+      // fall through and reject below
+    }
+
+    callback(new Error('CORS origin not allowed'));
+  },
+  credentials: false
+});
+
+app.use(corsMiddleware);
+app.options('*', corsMiddleware);
+app.use((req, res, next) => {
+  if (allowAllOrigins) {
+    res.header('Access-Control-Allow-Origin', '*');
+  }
+  res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', req.header('Access-Control-Request-Headers') || 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 app.use(express.json());
+
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof Error && err.message === 'CORS origin not allowed') {
+    if (allowAllOrigins) {
+      res.header('Access-Control-Allow-Origin', '*');
+    }
+    res.status(403).json({ message: err.message });
+    return;
+  }
+  next(err);
+});
 
 const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
-  cors: {
-    origin: '*'
-  }
+  cors: allowAllOrigins
+    ? {
+        origin: '*'
+      }
+    : {
+        origin: Array.from(allowedOrigins)
+      }
 });
 
 const socketToPlayer = new Map<string, { lobbyId: string; playerId: string }>();
