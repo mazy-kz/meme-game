@@ -1,5 +1,5 @@
 import http from 'node:http';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import {
@@ -14,14 +14,144 @@ import {
 import { gameManager } from './game/gameManager.js';
 
 const app = express();
-app.use(cors());
+
+function normalizeOrigin(value: string | undefined | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch (error) {
+    return null;
+  }
+}
+
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowAllOrigins = configuredOrigins.length === 0;
+
+const allowedOrigins = new Set<string>();
+
+function addAllowedOrigin(candidate: string | undefined | null) {
+  const normalized = normalizeOrigin(candidate);
+  if (normalized) {
+    allowedOrigins.add(normalized);
+  }
+}
+
+for (const origin of configuredOrigins) {
+  addAllowedOrigin(origin);
+}
+
+addAllowedOrigin(process.env.CLIENT_ORIGIN);
+addAllowedOrigin('http://localhost:5173');
+addAllowedOrigin('http://127.0.0.1:5173');
+addAllowedOrigin('http://localhost:4173');
+addAllowedOrigin('http://127.0.0.1:4173');
+
+const vercelProjectUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+if (vercelProjectUrl) {
+  const vercelOrigin = normalizeOrigin(`https://${vercelProjectUrl}`);
+  if (vercelOrigin) {
+    const { host } = new URL(vercelOrigin);
+
+    const derivedHosts = new Set<string>();
+    if (host.includes('-server.')) {
+      derivedHosts.add(host.replace('-server.', '-client.'));
+      derivedHosts.add(host.replace('-server.', ''));
+    }
+
+    for (const derivedHost of derivedHosts) {
+      addAllowedOrigin(`https://${derivedHost}`);
+    }
+  }
+}
+
+function isOriginAllowed(originHeader: string | undefined | null): boolean {
+  if (!originHeader) {
+    return allowAllOrigins;
+  }
+
+  if (allowAllOrigins) {
+    return true;
+  }
+
+  const normalized = normalizeOrigin(originHeader);
+  if (!normalized) {
+    return false;
+  }
+
+  if (allowedOrigins.has(normalized)) {
+    return true;
+  }
+
+  return false;
+}
+
+const corsMiddleware = cors({
+  origin(origin, callback) {
+    if (isOriginAllowed(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('CORS origin not allowed'));
+  },
+  credentials: false
+});
+
+app.use(corsMiddleware);
+app.options('*', corsMiddleware);
+app.use((req, res, next) => {
+  const requestOrigin = req.headers.origin || req.headers.referer;
+  if (allowAllOrigins) {
+    res.header('Access-Control-Allow-Origin', '*');
+  } else if (isOriginAllowed(requestOrigin)) {
+    const normalized = normalizeOrigin(requestOrigin);
+    if (normalized) {
+      res.header('Access-Control-Allow-Origin', normalized);
+    }
+  }
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+  res.header('Access-Control-Allow-Headers', req.header('Access-Control-Request-Headers') || 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
+
 app.use(express.json());
+
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof Error && err.message === 'CORS origin not allowed') {
+    if (allowAllOrigins) {
+      res.header('Access-Control-Allow-Origin', '*');
+    } else if (req.headers.origin && isOriginAllowed(req.headers.origin)) {
+      const normalized = normalizeOrigin(req.headers.origin);
+      if (normalized) {
+        res.header('Access-Control-Allow-Origin', normalized);
+      }
+    }
+    res.header('Vary', 'Origin');
+    res.status(403).json({ message: err.message });
+    return;
+  }
+  next(err);
+});
 
 const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
-  cors: {
-    origin: '*'
-  }
+  cors: allowAllOrigins
+    ? {
+        origin: '*'
+      }
+    : {
+        origin: Array.from(allowedOrigins)
+      }
 });
 
 const socketToPlayer = new Map<string, { lobbyId: string; playerId: string }>();
