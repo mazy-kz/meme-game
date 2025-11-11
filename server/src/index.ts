@@ -39,13 +39,23 @@ function sanitizeSettings(input: Partial<LobbySettings>): LobbySettings {
 }
 
 function broadcastLobby(lobbyId: string) {
+  console.log('📡 [Server] Broadcasting lobby state for:', lobbyId);
   const lobby = gameManager.getLobby(lobbyId);
-  if (!lobby) return;
+  if (!lobby) {
+    console.error('❌ [Server] Lobby not found for broadcast:', lobbyId);
+    return;
+  }
+  console.log('📡 [Server] Broadcasting to', lobby.players.size, 'players');
   for (const player of lobby.players.values()) {
+    console.log('📡 [Server] Checking player:', { id: player.id, socketId: player.socketId, connected: player.connected });
     if (!player.socketId) continue;
     const state = gameManager.getLobbyStateForPlayer(lobbyId, player.id);
     if (state) {
+      console.log('📡 [Server] Emitting lobby:state to socket:', player.socketId, 'for player:', player.id);
       io.to(player.socketId).emit('lobby:state', state);
+      console.log('✅ [Server] State emitted successfully');
+    } else {
+      console.error('❌ [Server] No state generated for player:', player.id);
     }
   }
 }

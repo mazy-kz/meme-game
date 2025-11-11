@@ -35,56 +35,55 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
   const storageKey = useMemo(() => `meme-game:lobby:${lobbyId}`, [lobbyId]);
 
   if (!socketRef.current) {
-    socketRef.current = io<ServerToClientEvents, ClientToServerEvents>(SOCKET_URL, {
+    console.log('🔌 [Socket] Creating new socket instance');
+    const newSocket = io(SOCKET_URL, {
       autoConnect: false,
       transports: ['websocket']
+    }) as Socket<ServerToClientEvents, ClientToServerEvents>;
+
+    // Register event listeners IMMEDIATELY when socket is created
+    newSocket.on('lobby:state', (payload: LobbyStatePayload) => {
+      console.log('📊 [Socket] Received lobby:state update:', payload);
+      setState(payload);
+      setError(null);
+      setConnectionStatus('connected');
     });
+    
+    newSocket.on('lobby:error', (message: string) => {
+      console.error('❌ [Socket] Received lobby:error:', message);
+      setError(message);
+    });
+    
+    newSocket.on('connect', () => {
+      console.log('✅ [Socket] Connected! Socket ID:', newSocket.id);
+      setConnectionStatus('connected');
+    });
+    
+    newSocket.on('disconnect', (reason: string) => {
+      console.error('❌ [Socket] Disconnected! Reason:', reason);
+      setConnectionStatus('idle');
+    });
+    
+    newSocket.on('connect_error', (error: Error) => {
+      console.error('❌ [Socket] Connection error:', error);
+    });
+
+    socketRef.current = newSocket;
   }
 
   const socket = socketRef.current;
 
   useEffect(() => {
-    const handleState = (payload: LobbyStatePayload) => {
-      console.log('📊 [Socket] Received lobby:state update:', payload);
-      setState(payload);
-      setError(null);
-      setConnectionStatus('connected');
-    };
-    const handleError = (message: string) => {
-      console.error('❌ [Socket] Received lobby:error:', message);
-      setError(message);
-    };
-    const handleConnect = () => {
-      console.log('✅ [Socket] Connected! Socket ID:', socket.id);
-      setConnectionStatus('connected');
-    };
-    const handleDisconnect = (reason: string) => {
-      console.error('❌ [Socket] Disconnected! Reason:', reason);
-      setConnectionStatus('idle');
-    };
-    const handleConnectError = (error: Error) => {
-      console.error('❌ [Socket] Connection error:', error);
-    };
-
-    socket.on('lobby:state', handleState);
-    socket.on('lobby:error', handleError);
-    socket.on('connect', handleConnect);
-    socket.on('disconnect', handleDisconnect);
-    socket.on('connect_error', handleConnectError);
-
     return () => {
       console.log('🔌 [Socket] Cleanup - disconnecting socket for lobbyId:', lobbyId);
-      socket.emit('player:leave');
-      socket.off('lobby:state', handleState);
-      socket.off('lobby:error', handleError);
-      socket.off('connect', handleConnect);
-      socket.off('disconnect', handleDisconnect);
-      socket.off('connect_error', handleConnectError);
-      socket.disconnect();
-      socketRef.current = undefined;
+      const currentSocket = socketRef.current;
+      if (currentSocket) {
+        currentSocket.emit('player:leave');
+        currentSocket.disconnect();
+        socketRef.current = undefined;
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lobbyId]); // Removed 'socket' from dependencies - it's a ref and shouldn't trigger re-renders
+  }, [lobbyId]); // Only disconnect when lobbyId changes or component unmounts
 
   const joinLobby = useCallback(
     ({ lobbyId: id, name, avatar, spectator }: { lobbyId: string; name: string; avatar: string; spectator?: boolean }) => {
