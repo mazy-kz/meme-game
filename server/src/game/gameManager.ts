@@ -15,7 +15,7 @@ import {
   SITUATIONS,
   VOTING_DURATION_MS
 } from '../constants.js';
-import { MockMemeProvider, MemeProvider } from './memeProvider.js';
+import { MockMemeProvider, MemeProvider, TenorMemeProvider } from './memeProvider.js';
 import { LobbyState, PlayerState, RoundInternalState, RoundResultEntryInternal } from './types.js';
 
 function randomItem<T>(items: T[]): T {
@@ -213,7 +213,7 @@ export class GameManager {
 
     const cardsPerPlayer = lobby.settings.rounds + 2;
     const desiredCards = Math.ceil(players.length * cardsPerPlayer * 1.2);
-    const memes = await this.memeProvider.fetchMemes(desiredCards);
+    const memes = await this.memeProvider.fetchMemes(desiredCards, lobby.settings.theme);
     lobby.deck = shuffle(memes);
 
     for (const player of players) {
@@ -587,4 +587,12 @@ export class GameManager {
   }
 }
 
-export const gameManager = new GameManager();
+// Initialize with Tenor provider if API key is available, otherwise use mock
+const tenorApiKey = process.env.TENOR_API_KEY || '';
+const memeProvider = tenorApiKey 
+  ? new TenorMemeProvider(tenorApiKey) 
+  : new MockMemeProvider();
+
+console.log(`🎨 [MemeProvider] Using ${tenorApiKey ? 'Tenor' : 'Mock'} meme provider`);
+
+export const gameManager = new GameManager(memeProvider);
