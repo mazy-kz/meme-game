@@ -31,17 +31,20 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
   const [state, setState] = useState<LobbyStatePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected'>('idle');
-  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents>>();
+  const socketRef = useRef<Socket<ServerToClientEvents, ClientToServerEvents> | null>(null);
   const storageKey = useMemo(() => `meme-game:lobby:${lobbyId}`, [lobbyId]);
 
   if (!socketRef.current) {
-    socketRef.current = io<ServerToClientEvents, ClientToServerEvents>(SOCKET_URL, {
+    socketRef.current = io(SOCKET_URL, {
       autoConnect: false,
       transports: ['websocket']
-    });
+    }) as Socket<ServerToClientEvents, ClientToServerEvents>;
   }
 
   const socket = socketRef.current;
+  if (!socket) {
+    throw new Error('Socket connection failed to initialize');
+  }
 
   useEffect(() => {
     const handleState = (payload: LobbyStatePayload) => {
@@ -65,7 +68,7 @@ export function useSocketLobby(lobbyId: string): LobbyConnection {
       socket.removeListener('connect');
       socket.removeListener('disconnect');
       socket.disconnect();
-      socketRef.current = undefined;
+      socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, lobbyId]);
