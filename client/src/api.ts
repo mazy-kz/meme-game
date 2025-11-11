@@ -43,6 +43,8 @@ function buildHostedApiCandidates(hostname: string): string[] {
   }
 
   return Array.from(candidates);
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/$/, '');
 }
 
 function deriveHostedApiBase(): string | undefined {
@@ -59,6 +61,14 @@ function deriveHostedApiBase(): string | undefined {
 
   for (const candidateHost of buildHostedApiCandidates(hostname)) {
     return `${protocol}//${candidateHost}/api`;
+  const { protocol, host } = window.location;
+
+  if (host.includes('-client')) {
+    return `${protocol}//${host.replace('-client', '-server')}/api`;
+  }
+
+  if (host.includes('client.')) {
+    return `${protocol}//${host.replace('client.', 'server.')}/api`;
   }
 
   return undefined;
@@ -68,6 +78,9 @@ const API_BASE =
   normalizeBaseUrl(import.meta.env.VITE_API_BASE as string | undefined) ??
   deriveHostedApiBase() ??
   '/api';
+const API_BASE = normalizeBaseUrl(
+  (import.meta.env.VITE_API_BASE as string | undefined) ?? deriveHostedApiBase() ?? '/api'
+);
 
 export interface CreateLobbyRequest extends LobbySettings {
   name?: string;
