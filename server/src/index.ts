@@ -1,5 +1,5 @@
 import http from 'node:http';
-import express from 'express';
+import express, { type NextFunction, type Request, type Response } from 'express';
 import cors from 'cors';
 import { Server } from 'socket.io';
 import {
@@ -14,14 +14,156 @@ import {
 import { gameManager } from './game/gameManager.js';
 
 const app = express();
-app.use(cors());
+
+function normalizeOrigin(value: string | undefined | null): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch (error) {
+    return null;
+  }
+}
+
+const configuredOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowAllOrigins = configuredOrigins.length === 0;
+
+const allowedOrigins = new Set<string>();
+
+function addAllowedOrigin(candidate: string | undefined | null) {
+  const normalized = normalizeOrigin(candidate);
+  if (normalized) {
+    allowedOrigins.add(normalized);
+  }
+}
+
+for (const origin of configuredOrigins) {
+  addAllowedOrigin(origin);
+}
+
+addAllowedOrigin(process.env.CLIENT_ORIGIN);
+addAllowedOrigin('http://localhost:5173');
+addAllowedOrigin('http://127.0.0.1:5173');
+addAllowedOrigin('http://localhost:4173');
+addAllowedOrigin('http://127.0.0.1:4173');
+addAllowedOrigin('https://meme-game-client.vercel.app');
+addAllowedOrigin('https://meme-game.vercel.app');
+
+const vercelProjectUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+if (vercelProjectUrl) {
+  const vercelOrigin = normalizeOrigin(`https://${vercelProjectUrl}`);
+  if (vercelOrigin) {
+    const { host } = new URL(vercelOrigin);
+
+    const derivedHosts = new Set<string>();
+    if (host.includes('-server.')) {
+      derivedHosts.add(host.replace('-server.', '-client.'));
+      derivedHosts.add(host.replace('-server.', ''));
+    }
+    if (host.includes('-server-')) {
+      derivedHosts.add(host.replace('-server-', '-client-'));
+      derivedHosts.add(host.replace('-server-', '-'));
+    }
+
+    for (const derivedHost of derivedHosts) {
+      addAllowedOrigin(`https://${derivedHost}`);
+    }
+  }
+}
+
+function resolveAllowedOrigin(originHeader: string | undefined | null): string | null {
+  if (!originHeader) {
+    return allowAllOrigins ? '*' : null;
+  }
+
+  const normalized = normalizeOrigin(originHeader);
+  if (!normalized) {
+    return null;
+  }
+
+  if (allowAllOrigins || allowedOrigins.has(normalized)) {
+    return normalized;
+  }
+
+  return null;
+}
+
+const corsOptions: cors.CorsOptions = {
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalized = resolveAllowedOrigin(origin);
+    if (normalized) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('CORS origin not allowed'));
+  },
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Origin'],
+  credentials: false,
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+app.use((req, res, next) => {
+  const allowedOrigin = resolveAllowedOrigin(req.headers.origin || req.headers.referer);
+  if (allowedOrigin) {
+    res.header('Access-Control-Allow-Origin', allowedOrigin === '*' && req.headers.origin ? req.headers.origin : allowedOrigin);
+  }
+
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Methods', 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS');
+
+  const requestedHeaders = req.header('Access-Control-Request-Headers');
+  if (requestedHeaders) {
+    res.header('Access-Control-Allow-Headers', requestedHeaders);
+  } else {
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,Accept,Origin');
+  }
+
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(204);
+    return;
+  }
+
+  next();
+});
+
 app.use(express.json());
+
+app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof Error && err.message === 'CORS origin not allowed') {
+    const allowedOrigin = resolveAllowedOrigin(req.headers.origin || req.headers.referer);
+    if (allowedOrigin) {
+      res.header('Access-Control-Allow-Origin', allowedOrigin === '*' && req.headers.origin ? req.headers.origin : allowedOrigin);
+    }
+    res.header('Vary', 'Origin');
+    res.status(403).json({ message: err.message });
+    return;
+  }
+  next(err);
+});
 
 const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
-  cors: {
-    origin: '*'
-  }
+  cors: allowAllOrigins
+    ? {
+        origin: '*'
+      }
+    : {
+        origin: Array.from(allowedOrigins)
+      }
 });
 
 const socketToPlayer = new Map<string, { lobbyId: string; playerId: string }>();
